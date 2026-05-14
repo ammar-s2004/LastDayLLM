@@ -1,0 +1,171 @@
+================================================================================
+SECURITY ARCHITECTURE AND ENVIRONMENT VARIABLES DOCUMENTATION
+================================================================================
+
+DATE: 2026-02-10
+FILENAME: docs/security-architecture.txt
+
+This document outlines the security structure of the LastDayLLM project, 
+focusing on how environment variables and Supabase keys are managed across 
+different execution contexts.
+
+--------------------------------------------------------------------------------
+1. SUPABASE KEYS: ANON VS SERVICE ROLE
+--------------------------------------------------------------------------------
+
+The project uses two types of Supabase API keys, each with restricted or 
+broad access depending on the environment.
+
+A. NEXT_PUBLIC_SUPABASE_ANON_KEY
+   - Usage: Frontend (Client-side) and API Routes.
+   - Purpose: Used for public or user-authenticated requests.
+   - Security: Strictly enforced by Row Level Security (RLS) policies 
+     in the database. 
+   - Scope: Users can only read/write data that belongs to them (e.g., 
+     their own profile, their own uploaded notes).
+
+B. SUPABASE_SERVICE_KEY
+   - Usage: Background Tasks (Trigger.dev), Admin Scripts, and Server-side logic.
+   - Purpose: Bypasses Row Level Security (RLS) to perform system-level operations.
+   - Security: MUST NEVER be exposed to the browser.
+   - Scope: Full access to the database. Essential for tasks like:
+     - Smart deduplication (comparing notes across different users).
+     - Storage management (downloading user files for processing).
+     - Updating system-generated metadata.
+
+--------------------------------------------------------------------------------
+2. ENVIRONMENT VARIABLES LIST
+--------------------------------------------------------------------------------
+
+All critical variables are stored in .env.local (for local development) 
+and must be manually added to the Trigger.dev and Vercel dashboards 
+for production.
+
+Variable Name                   | Usage / Context
+-------------------------------|------------------------------------------------
+NEXT_PUBLIC_SUPABASE_URL       | Shared base URL for Supabase API.
+NEXT_PUBLIC_SUPABASE_ANON_KEY  | Client-side public key (RLS enforced).
+SUPABASE_SERVICE_KEY           | Server-side admin key (Bypasses RLS).
+GOOGLE_AI_API_KEY              | For Gemini extraction and embeddings.
+NEXT_PUBLIC_TRIGGER_PROJECT_ID | Identifies the project in Trigger.dev.
+TRIGGER_SECRET_KEY             | Authenticates the server with Trigger.dev.
+QDRANT_URL                     | Endpoint for the Qdrant vector database.
+QDRANT_API_KEY                 | Authentication for Qdrant operations.
+
+--------------------------------------------------------------------------------
+3. FILE-LEVEL KEY MAPPING (WHO USES WHAT & WHY)
+--------------------------------------------------------------------------------
+
+A. FILES USING ANON KEY (NEXT_PUBLIC_SUPABASE_ANON_KEY)
+   Enforces User Context and Row Level Security (RLS).
+
+   File Path                        | Why it uses the Anon Key
+   ---------------------------------|-------------------------------------------
+   lib/supabase-browser.ts          | Main client for React Client Components.
+                                    | Ensures the browser only sees data the 
+                                    | logged-in user is allowed to see.
+   
+   lib/supabase-server.ts           | Multi-tenant client for Server Components 
+                                    | and Route Handlers. Uses cookies to track
+                                    | user sessions.
+   
+   middleware.ts                    | Used to refresh the active user session
+                                    | before it expires, ensuring the user stays
+                                    | logged in securely.
+
+B. FILES USING SERVICE ROLE KEY (SUPABASE_SERVICE_KEY)
+   Administrative/System level access. Bypasses RLS.
+
+   File Path                        | Why it uses the Service Role Key
+   ---------------------------------|-------------------------------------------
+   lib/supabase-worker.ts           | Centralized utility for background jobs. 
+                                    | Provides a shared way to access the DB
+                                    | without needing a user login.
+
+   trigger/tasks/process-notes.ts   | Background processing of uploaded notes.
+                                    | Needs to download files and update system
+                                    | metadata after AI processing.
+
+   trigger/tasks/cleanup-notes.ts   | Scheduled cleanup task. Needs to delete 
+                                    | expired records across the entire database
+                                    | regardless of which user uploaded them.
+
+   scripts/verify_resources.ts      | Developer audit script. Used to verify the
+                                    | health of the database and count records
+                                    | globally for testing.
+
+--------------------------------------------------------------------------------
+4. EXECUTION CONTEXTS AND SECURITY
+--------------------------------------------------------------------------------
+
+A. FRONTEND / CLIENT-SIDE
+   - Context: User's web browser.
+   - Key: Anon Key.
+   - Flow: User logs in -> Session cookie created -> Requests sent to Supabase 
+     automatically include the User's JWT (JSON Web Token).
+   - Security: RLS filters all data. The database checks the "auth.uid()" 
+     to ensure the user is allowed to see the data.
+
+B. API ROUTES (Next.js /app/api)
+   - Context: Server-side (Node.js).
+   - Key: Anon Key (usually).
+   - Flow: Receives request -> Verifies user session -> Executes query.
+   - Security: Inherits user context.
+
+C. BACKGROUND WORKERS (Trigger.dev)
+   - Context: Isolated worker environment.
+   - Key: Service Role Key.
+   - Why: Worker tasks run asynchronously, often long after the user has 
+     logged out or their session has expired. There is no "current user" 
+     context in the background.
+   - Flow: Upload triggers Task -> Task uses Service Key to read file -> 
+     Task uses Service Key to update global metadata.
+   - Security: Restricted via the payload parameters. Workers only 
+     process the specific IDs passed to them.
+
+--------------------------------------------------------------------------------
+4. BEST PRACTICES FOR PRODUCTION
+--------------------------------------------------------------------------------
+
+- Never commit .env.local to GitHub.
+- Use different Supabase projects or at least different keys for 
+  Local, Staging, and Production.
+- Periodically rotate the SUPABASE_SERVICE_KEY and GOOGLE_AI_API_KEY.
+- Always verify that RLS is ENABLED on every new table in Supabase.
+- When performing system updates in workers, strictly validate 
+  the input IDs (e.g., metadataId) before performing operations.
+
+--------------------------------------------------------------------------------
+6. ORPHANED FILE MITIGATION
+--------------------------------------------------------------------------------
+
+VULNERABILITY: When a file is uploaded to storage but the background
+processing task fails (after all retries), the file stays orphaned.
+If the user tries to re-upload, deduplication logic blocks it.
+
+A. NOTES UPLOAD (app/api/notes-v2/upload/route.ts)
+   Storage: Supabase Storage (permanent).
+   Fix 1 (API Route): The dedup check now detects records with
+   processing_status = FAILED. When found, it deletes the old 
+   storage file and metadata row, then allows the re-upload.
+   Fix 2 (Worker): process-notes-qdrant.ts now deletes the storage
+   file from Supabase in the catch block when processing fails.
+   Both fixes provide defense-in-depth.
+
+B. QUESTIONS / SYLLABUS / PYQ (app/api/upload-document/route.ts)
+   Storage: Google File API (auto-expires in 48 hours).
+   Fix: Already handled. Line 269 detects resources with
+   status = FAILED, deletes the old DB record, and allows re-upload.
+   Google files auto-expire so no permanent orphans.
+
+SUMMARY TABLE:
+   Flow          | Storage          | Handles FAILED re-upload?
+   --------------|------------------|-------------------------
+   Notes (v2)    | Supabase Storage | Yes (fixed 2026-02-10)
+   Questions     | Google File API  | Yes (already handled)
+   Syllabus      | Google File API  | Yes (already handled)
+   PYQ           | Google File API  | Yes (already handled)
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

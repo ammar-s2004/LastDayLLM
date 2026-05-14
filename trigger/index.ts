@@ -1,0 +1,11 @@
+// trigger/index.ts
+import "./tasks/process-syllabus";
+import "./tasks/process-questions";
+import "./tasks/process-notes-qdrant";
+import "./tasks/process-pyq";
+import "./tasks/cleanup-expired-notes";
+import "./tasks/compute-sp";
+import "./tasks/compute-wtf";
+import "./tasks/compute-te";
+import "./tasks/compute-a";
+import "./tasks/run-prediction";
