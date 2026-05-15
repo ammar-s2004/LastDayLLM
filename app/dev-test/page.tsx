@@ -493,7 +493,7 @@ export default function DevTest() {
             return {
               ...subject,
               modules: modules || [],
-              hasSyllabus: !!syllabusResource && syllabusResource.status === 'completed',
+              hasSyllabus: !!syllabusResource && (syllabusResource.status === 'COMPLETED' || syllabusResource.status === 'completed'),
               hasExamScope: !!existingScope,
               examScopeType: existingScope?.exam_type,
               examScopeTopicIds: existingScope?.included_topic_ids || [],
@@ -828,7 +828,7 @@ export default function DevTest() {
 
       setTimeout(() => {
         fetchPredictions(subjectId)
-      }, 2000)
+      }, 3000)
     } catch (error: any) {
       setPredictionToast({
         type: 'error',
@@ -2117,7 +2117,7 @@ export default function DevTest() {
                   const hasMoreTopics = allTopics.length > 4
                   const pyqsSkipped = subject.config?.pyqs_skipped === true
                   const canGeneratePredictions =
-                    subject.hasSyllabus === true &&
+                    (subject.hasSyllabus === true || allTopics.length > 0) &&
                     subject.hasExamScope === true &&
                     ((subject.testPaperQuestions?.length ?? 0) > 0 ||
                       (subject.assignmentQuestions?.length ?? 0) > 0 ||
@@ -2464,132 +2464,6 @@ export default function DevTest() {
                         )}
                       </div>
 
-                      <div className="hidden">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                          <div>
-                            <h4 className="text-base font-semibold text-emerald-300">Generate Predictions</h4>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Run the scoring engine and view ranked topics by module.
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => fetchPredictions(subject.id)}
-                              disabled={predictionLoading[subject.id]}
-                              className="px-3 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition text-sm disabled:opacity-60"
-                            >
-                              {predictionLoading[subject.id] ? 'Refreshing...' : 'Refresh'}
-                            </button>
-                            <button
-                              onClick={() => generatePredictions(subject.id)}
-                              disabled={predictionGenerating[subject.id]}
-                              className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold transition disabled:opacity-60"
-                            >
-                              {predictionGenerating[subject.id]
-                                ? 'Starting...'
-                                : predictionRuns[subject.id]
-                                  ? 'Re-run'
-                                  : 'Generate Predictions'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {predictionLoading[subject.id] ? (
-                          <div className="text-sm text-slate-400 py-6 flex items-center gap-3">
-                            <div className="w-4 h-4 border-2 border-slate-600 border-t-emerald-400 rounded-full animate-spin" />
-                            Loading latest predictions...
-                          </div>
-                        ) : !predictionRuns[subject.id] ? (
-                          <div className="text-sm text-slate-400 bg-slate-900/70 border border-slate-800 rounded-lg px-4 py-5">
-                            No predictions yet — click Generate to start
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            <div className="text-xs text-slate-400 bg-slate-900/70 border border-slate-800 rounded-lg px-4 py-3">
-                              Latest run: {new Date(predictionRuns[subject.id]!.created_at).toLocaleString()}
-                            </div>
-
-                            {spTruncated[subject.id] && (
-                              <div className="flex items-start gap-3 px-4 py-3 bg-amber-900/20 border border-amber-600/40 rounded-lg text-xs text-amber-300">
-                                <span className="text-base shrink-0">⚠️</span>
-                                <p><span className="font-semibold">Partial SP signal:</span> The AI response was cut short during scoring — some topic centrality scores may be missing. Predictions are still valid but may be less accurate. Re-run to attempt a full score.</p>
-                              </div>
-                            )}
-
-                            {pyqsSkipped && (
-                              <div className="flex items-start gap-3 px-4 py-3 bg-sky-900/20 border border-sky-700/40 rounded-lg text-xs text-sky-300">
-                                <span className="text-base shrink-0">ℹ️</span>
-                                <p><span className="font-semibold">No PYQs:</span> Predictions are based on syllabus centrality, notes coverage, and teacher hints only. Upload past papers anytime to improve accuracy.</p>
-                              </div>
-                            )}
-
-                            {Object.entries(
-                              (predictionScores[subject.id] || []).reduce((acc, score) => {
-                                const moduleId = score.topics?.module_id || 'unknown'
-                                if (!acc[moduleId]) acc[moduleId] = []
-                                acc[moduleId].push(score)
-                                return acc
-                              }, {} as Record<string, PredictionScore[]>)
-                            )
-                              .sort(([moduleA], [moduleB]) => {
-                                const moduleNoA = subject.modules?.find(module => module.id === moduleA)?.module_no ?? Number.MAX_SAFE_INTEGER
-                                const moduleNoB = subject.modules?.find(module => module.id === moduleB)?.module_no ?? Number.MAX_SAFE_INTEGER
-                                return moduleNoA - moduleNoB
-                              })
-                              .map(([moduleId, scores]) => {
-                                const moduleInfo = subject.modules?.find(module => module.id === moduleId)
-
-                                return (
-                                  <div key={moduleId} className="rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden">
-                                    <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/90">
-                                      <h5 className="text-sm font-semibold text-slate-100">
-                                        {moduleInfo
-                                          ? `Module ${moduleInfo.module_no}: ${moduleInfo.title}`
-                                          : 'Module'}
-                                      </h5>
-                                    </div>
-
-                                    <div className="divide-y divide-slate-800">
-                                      {scores
-                                        .slice()
-                                        .sort((a, b) => b.final_score - a.final_score)
-                                        .map(score => (
-                                          <div key={score.topic_id} className="px-4 py-3 flex items-center justify-between gap-4">
-                                            <div className="min-w-0">
-                                              <p className="text-sm text-slate-200 truncate">
-                                                {score.topics?.parent?.name 
-                                                  ? `${score.topics.parent.name} › ${score.topics.name}` 
-                                                  : score.topics?.name || 'Unnamed topic'}
-                                              </p>
-                                            </div>
-                                            <div className="flex items-center gap-3 shrink-0">
-                                              <span
-                                                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
-                                                  score.band === 'HIGH'
-                                                    ? 'bg-emerald-500/20 text-emerald-300'
-                                                    : score.band === 'MEDIUM'
-                                                      ? 'bg-amber-500/20 text-amber-300'
-                                                      : 'bg-slate-700 text-slate-300'
-                                                }`}
-                                              >
-                                                {score.band}
-                                              </span>
-                                              <span className="text-sm font-mono text-slate-300">
-                                                {Math.round(score.final_score * 100)}%
-                                              </span>
-                                            </div>
-                                          </div>
-                                        ))}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                          </div>
-                        )}
-                      </div>
-
-
-
                       {/* NOTES UPLOAD MODAL */}
                       {notesUploadModalOpen && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2908,49 +2782,61 @@ export default function DevTest() {
                             ⚡ Process <span className="text-xs">(Soon)</span>
                           </button>
 
-                          {/* 🤖 ASK AI */}
-                          <button
-                            onClick={() => setAskAiSubjectId(askAiSubjectId === subject.id ? null : subject.id)}
-                            disabled={!uploadedNotes[subject.id]?.length}
-                            title={!uploadedNotes[subject.id]?.length ? "Upload notes first to ask AI" : "Ask AI about your notes"}
-                            className={`px-4 py-2 border rounded-lg transition text-sm font-medium
-                              ${askAiSubjectId === subject.id
-                                ? 'bg-violet-700 border-violet-500 text-white'
-                                : !uploadedNotes[subject.id]?.length
-                                  ? 'bg-slate-800 border-slate-600 text-slate-500 cursor-not-allowed opacity-60'
-                                  : 'bg-slate-800 border-violet-700/50 text-violet-300 hover:bg-violet-900/30 hover:border-violet-500'
-                              }`}
-                          >
-                            🤖 Ask AI
-                          </button>
+                        </div>
 
+                        <div className="mt-4">
+                          {predictionRuns[subject.id] && (
+                            <div className="mb-2 inline-flex rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-xs text-slate-400">
+                              Last run: {new Date(predictionRuns[subject.id]!.created_at).toLocaleString()}
+                            </div>
+                          )}
                           <button
                             onClick={() => generatePredictions(subject.id)}
                             disabled={!canGeneratePredictions || predictionGenerating[subject.id]}
                             title={!canGeneratePredictions ? 'Upload syllabus, exam scope, and at least one test paper or assignment first' : undefined}
-                            className={`px-4 py-2 border rounded-lg transition text-sm font-medium ${
+                            className={`w-full rounded-xl py-4 text-lg font-bold transition-all duration-300 ${
                               !canGeneratePredictions || predictionGenerating[subject.id]
-                                ? 'bg-slate-800 border-slate-600 text-slate-500 cursor-not-allowed opacity-60'
-                                : 'bg-emerald-900/20 border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/40 hover:border-emerald-500'
+                                ? 'opacity-50 cursor-not-allowed bg-slate-800 border border-slate-600 text-slate-500'
+                                : 'bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-600 hover:from-indigo-500 hover:via-sky-500 hover:to-emerald-500 shadow-lg shadow-sky-900/40 text-white animate-pulse'
                             }`}
                           >
-                            {predictionGenerating[subject.id] ? 'Starting...' : '🔮 Predict'}
+                            {predictionGenerating[subject.id] ? (
+                              <span className="inline-flex items-center justify-center gap-3">
+                                <span className="inline-block w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                Running Research Engine...
+                              </span>
+                            ) : predictionRuns[subject.id] ? (
+                              '🔄 Re-run Research'
+                            ) : (
+                              '🚀 Start the Research'
+                            )}
                           </button>
 
-                          <button
-                            onClick={() => fetchPredictions(subject.id)}
-                            disabled={!canGeneratePredictions || predictionLoading[subject.id]}
-                            title={!canGeneratePredictions ? 'Upload syllabus, exam scope, and at least one test paper or assignment first' : undefined}
-                            className={`px-3 py-2 border rounded-lg transition text-sm font-medium ${
-                              !canGeneratePredictions || predictionLoading[subject.id]
-                                ? 'bg-slate-800 border-slate-600 text-slate-500 cursor-not-allowed opacity-60'
-                                : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
-                            }`}
-                          >
-                            {predictionLoading[subject.id]
-                              ? <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-emerald-400 rounded-full animate-spin align-middle" />
-                              : '🔄'}
-                          </button>
+                          {!canGeneratePredictions && (
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                              {[
+                                { label: 'Syllabus uploaded', done: subject.hasSyllabus === true || allTopics.length > 0 },
+                                { label: 'Exam scope configured', done: subject.hasExamScope === true },
+                                {
+                                  label: 'Test papers / assignments uploaded (or PYQs skipped)',
+                                  done:
+                                    (subject.testPaperQuestions?.length ?? 0) > 0 ||
+                                    (subject.assignmentQuestions?.length ?? 0) > 0 ||
+                                    pyqsSkipped
+                                }
+                              ].map(item => (
+                                <div
+                                  key={item.label}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5"
+                                >
+                                  <span className={item.done ? 'text-emerald-400' : 'text-red-400'}>
+                                    {item.done ? '✅' : '❌'}
+                                  </span>
+                                  <span className="text-xs text-slate-400">{item.label}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2968,7 +2854,17 @@ export default function DevTest() {
                           )}
 
                           {Object.entries(
-                            (predictionScores[subject.id] || []).reduce((acc, score) => {
+                            (predictionScores[subject.id] || [])
+                              .filter(score => {
+                                if (!subject.examScopeTopicIds?.length) return true
+                                const scopeIds = subject.examScopeTopicIds
+                                // Direct match (parent topic scored directly)
+                                if (scopeIds.includes(score.topic_id)) return true
+                                // Child topic: check its parent_topic_id
+                                if (score.topics?.parent_topic_id && scopeIds.includes(score.topics.parent_topic_id)) return true
+                                return false
+                              })
+                              .reduce((acc, score) => {
                               const moduleId = score.topics?.module_id || 'unknown'
                               if (!acc[moduleId]) acc[moduleId] = []
                               acc[moduleId].push(score)
