@@ -829,6 +829,11 @@ export default function DevTest() {
       setTimeout(() => {
         fetchPredictions(subjectId)
       }, 3000)
+
+      // Redirect to the Questions page after brief delay
+      setTimeout(() => {
+        router.push(`/questions/${subjectId}`)
+      }, 1500)
     } catch (error: any) {
       setPredictionToast({
         type: 'error',
@@ -2839,91 +2844,6 @@ export default function DevTest() {
                           )}
                         </div>
                       </div>
-
-                      {predictionRuns[subject.id] && (
-                        <div className="mt-4 space-y-4">
-                          <div className="text-xs text-slate-400 bg-slate-900/70 border border-slate-800 rounded-lg px-4 py-3">
-                            Latest run: {new Date(predictionRuns[subject.id]!.created_at).toLocaleString()}
-                          </div>
-
-                          {pyqsSkipped && (
-                            <div className="flex items-start gap-3 px-4 py-3 bg-sky-900/20 border border-sky-700/40 rounded-lg text-xs text-sky-300">
-                              <span className="text-base shrink-0">ℹ️</span>
-                              <p><span className="font-semibold">No PYQs:</span> Predictions are based on syllabus centrality, notes coverage, and teacher hints only. Upload past papers anytime to improve accuracy.</p>
-                            </div>
-                          )}
-
-                          {Object.entries(
-                            (predictionScores[subject.id] || [])
-                              .filter(score => {
-                                if (!subject.examScopeTopicIds?.length) return true
-                                const scopeIds = subject.examScopeTopicIds
-                                // Direct match (parent topic scored directly)
-                                if (scopeIds.includes(score.topic_id)) return true
-                                // Child topic: check its parent_topic_id
-                                if (score.topics?.parent_topic_id && scopeIds.includes(score.topics.parent_topic_id)) return true
-                                return false
-                              })
-                              .reduce((acc, score) => {
-                              const moduleId = score.topics?.module_id || 'unknown'
-                              if (!acc[moduleId]) acc[moduleId] = []
-                              acc[moduleId].push(score)
-                              return acc
-                            }, {} as Record<string, PredictionScore[]>)
-                          )
-                            .sort(([moduleA], [moduleB]) => {
-                              const moduleNoA = subject.modules?.find(module => module.id === moduleA)?.module_no ?? Number.MAX_SAFE_INTEGER
-                              const moduleNoB = subject.modules?.find(module => module.id === moduleB)?.module_no ?? Number.MAX_SAFE_INTEGER
-                              return moduleNoA - moduleNoB
-                            })
-                            .map(([moduleId, scores]) => {
-                              const moduleInfo = subject.modules?.find(module => module.id === moduleId)
-
-                              return (
-                                <div key={moduleId} className="rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden">
-                                  <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/90">
-                                    <h5 className="text-sm font-semibold text-slate-100">
-                                      {moduleInfo
-                                        ? `Module ${moduleInfo.module_no}: ${moduleInfo.title}`
-                                        : 'Module'}
-                                    </h5>
-                                  </div>
-
-                                  <div className="divide-y divide-slate-800">
-                                    {scores
-                                      .slice()
-                                      .sort((a, b) => b.final_score - a.final_score)
-                                      .map(score => (
-                                        <div key={score.topic_id} className="px-4 py-3 flex items-center justify-between gap-4">
-                                          <div className="min-w-0">
-                                            <p className="text-sm text-slate-200 truncate">
-                                              {score.topics?.name || 'Unnamed topic'}
-                                            </p>
-                                          </div>
-                                          <div className="flex items-center gap-3 shrink-0">
-                                            <span
-                                              className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
-                                                score.band === 'HIGH'
-                                                  ? 'bg-emerald-500/20 text-emerald-300'
-                                                  : score.band === 'MEDIUM'
-                                                    ? 'bg-amber-500/20 text-amber-300'
-                                                    : 'bg-slate-700 text-slate-300'
-                                              }`}
-                                            >
-                                              {score.band}
-                                            </span>
-                                            <span className="text-sm font-mono text-slate-300">
-                                              {Math.round(score.final_score * 100)}%
-                                            </span>
-                                          </div>
-                                        </div>
-                                      ))}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                        </div>
-                      )}
 
                       {/* ✅ INLINE TEACHER HINTS PANEL */}
                       {expandedHintSubjectId === subject.id && (
