@@ -44,3 +44,14 @@ body {
   animation: marquee-vertical var(--duration, 40s) linear infinite;
 }
 
+/* ── KaTeX Math Styling ── */
+.katex-display {
+  font-size: 1.35em !important;
+  margin: 1.5em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+.katex {
+  font-size: 1.15em !important;
+}

@@ -2796,7 +2796,13 @@ export default function DevTest() {
                             </div>
                           )}
                           <button
-                            onClick={() => generatePredictions(subject.id)}
+                            onClick={() => {
+                              if (predictionRuns[subject.id]) {
+                                router.push(`/questions/${subject.id}`)
+                              } else {
+                                generatePredictions(subject.id)
+                              }
+                            }}
                             disabled={!canGeneratePredictions || predictionGenerating[subject.id]}
                             title={!canGeneratePredictions ? 'Upload syllabus, exam scope, and at least one test paper or assignment first' : undefined}
                             className={`w-full rounded-xl py-4 text-lg font-bold transition-all duration-300 ${
@@ -2811,7 +2817,7 @@ export default function DevTest() {
                                 Running Research Engine...
                               </span>
                             ) : predictionRuns[subject.id] ? (
-                              '🔄 Re-run Research'
+                              '✨ View Generated Questions'
                             ) : (
                               '🚀 Start the Research'
                             )}

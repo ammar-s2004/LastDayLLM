@@ -1,9 +1,52 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'motion/react'
+import { Mermaid } from '@/components/ui/mermaid'
 import { createClient } from '@/lib/supabase-browser'
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+
+/**
+ * Wraps <Mermaid> in a styled container that auto-hides if rendering fails.
+ * The container ref checks if Mermaid rendered anything; if empty, it hides.
+ */
+function MermaidWrapper({ chart }: { chart: string }) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [hasContent, setHasContent] = useState(true)
+
+  useEffect(() => {
+    // Check after a short delay to see if Mermaid rendered anything
+    const timer = setTimeout(() => {
+      if (wrapperRef.current) {
+        const mermaidChild = wrapperRef.current.querySelector('div')
+        // Mermaid returns null on failure, which removes the child div
+        if (!mermaidChild || mermaidChild.innerHTML === '') {
+          setHasContent(false)
+        }
+      }
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [chart])
+
+  if (!hasContent) return null
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{
+        background: '#1a1a2e',
+        borderRadius: 12,
+        border: '1px solid rgba(124,58,237,0.25)',
+        maxWidth: 640,
+        overflow: 'auto',
+        padding: 16,
+      }}
+    >
+      <Mermaid chart={chart} />
+    </div>
+  )
+}
 
 type StudyMode = '3h' | '8h' | '2day'
 
@@ -16,6 +59,13 @@ type GeneratedQuestion = {
   probability: string | null
   study_mode_tag: number
   source_topics: string[] | null
+  diagram_svg: string | null
+  answer_text: string | null
+  answer_diagram_type: string | null
+  answer_diagram_mermaid: string | null
+  answer_diagram_web_url: string | null
+  answer_diagram_page_ref: { storage_path: string; page: number; filename: string } | null
+  answer_sources: Array<{ filename: string; page: string | null; content_preview: string; upload_id: string }> | null
 }
 
 const studyModes: Array<{ value: StudyMode; label: string; icon: string }> = [
@@ -62,6 +112,8 @@ function probabilityStyles(probability: string | null) {
   }
 }
 
+
+
 export default function ModuleQuestionsPage() {
   return (
     <Suspense fallback={<ModuleQuestionsFallback />}>
@@ -97,6 +149,9 @@ function ModuleQuestionsContent() {
   const [loading, setLoading] = useState(true)
   const [studyMode, setStudyMode] = useState<'3h' | '8h' | '2day'>(mode)
   const [openPlaceholders, setOpenPlaceholders] = useState<Set<string>>(new Set())
+  const [openSources, setOpenSources] = useState<Set<string>>(new Set())
+  const [openDiagrams, setOpenDiagrams] = useState<Set<string>>(new Set())
+  const [diagramSeen, setDiagramSeen] = useState(false)
 
   const fetchQuestions = useCallback(
     async (selectedMode: StudyMode) => {
@@ -106,7 +161,7 @@ function ModuleQuestionsContent() {
       const supabase = createClient()
       let query = supabase
         .from('generated_questions')
-        .select('id, question_no, question_text, question_type, estimated_marks, probability, study_mode_tag, source_topics')
+        .select('id, question_no, question_text, question_type, estimated_marks, probability, study_mode_tag, source_topics, diagram_svg, answer_text, answer_diagram_type, answer_diagram_mermaid, answer_diagram_web_url, answer_diagram_page_ref, answer_sources')
         .eq('module_id', moduleId)
         .order('question_no', { ascending: true })
 
@@ -119,7 +174,14 @@ function ModuleQuestionsContent() {
       const result = await query
 
       if (!result.error) {
-        setQuestions((result.data ?? []) as GeneratedQuestion[])
+        const sortedData = [...(result.data ?? [])].sort((a: any, b: any) => {
+          const rank = { HIGH: 1, MEDIUM: 2, LOW: 3 } as const
+          const rankA = rank[a.probability?.toUpperCase() as keyof typeof rank] ?? 4
+          const rankB = rank[b.probability?.toUpperCase() as keyof typeof rank] ?? 4
+          if (rankA !== rankB) return rankA - rankB
+          return (a.question_no ?? 0) - (b.question_no ?? 0)
+        })
+        setQuestions(sortedData as GeneratedQuestion[])
       }
 
       setLoading(false)
@@ -166,11 +228,24 @@ function ModuleQuestionsContent() {
   const togglePlaceholder = (questionId: string) => {
     setOpenPlaceholders((current) => {
       const next = new Set(current)
+      const wasOpen = current.has(questionId)
 
-      if (next.has(questionId)) {
+      if (wasOpen) {
         next.delete(questionId)
+        // Clean up sources when closing
+        setOpenSources((currentSources) => {
+          const nextSources = new Set(currentSources)
+          nextSources.delete(questionId)
+          return nextSources
+        })
       } else {
         next.add(questionId)
+        setTimeout(() => {
+          document.getElementById(`answer-${questionId}`)?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          })
+        }, 100)
       }
 
       return next
@@ -371,7 +446,8 @@ function ModuleQuestionsContent() {
               <span style={{ flex: 1 }}>Question</span>
               <span style={{ width: 92 }}>Probability</span>
               <span style={{ minWidth: 36, textAlign: 'right' }}>Marks</span>
-              <span style={{ width: 36 }}>▶ Play</span>
+              <span style={{ width: 36, textAlign: 'center' }}>📊</span>
+              <span style={{ width: 36 }}>▶</span>
             </div>
 
             {questions.map((question, index) => {
@@ -393,98 +469,343 @@ function ModuleQuestionsContent() {
                       event.currentTarget.style.background = 'transparent'
                     }}
                     style={{
-                      alignItems: 'center',
                       borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      display: 'flex',
-                      gap: 16,
-                      padding: '16px 24px',
                       transition: 'background 0.15s',
                     }}
                   >
-                    <span
-                      style={{
-                        color: 'rgba(255,255,255,0.3)',
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        minWidth: 28,
-                      }}
-                    >
-                      {question.question_no}
-                    </span>
-                    <p
-                      style={{
-                        color: '#F5F5F5',
-                        flex: 1,
-                        fontSize: 15,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {question.question_text}
-                    </p>
-                    <span
-                      style={{
-                        ...probabilityStyles(probability),
-                        borderRadius: 999,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: '0.05em',
-                        padding: '3px 10px',
-                        width: 92,
-                        textAlign: 'center',
-                      }}
-                    >
-                      {probability}
-                    </span>
-                    <span
-                      style={{
-                        color: 'rgba(255,255,255,0.4)',
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        minWidth: 36,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {question.estimated_marks ?? 0}M
-                    </span>
-                    <button
-                      onClick={() => togglePlaceholder(question.id)}
-                      onMouseEnter={(event) => {
-                        event.currentTarget.style.background = '#8B5CF6'
-                        event.currentTarget.style.boxShadow = '0 0 16px rgba(124,58,237,0.5)'
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.background = '#7C3AED'
-                        event.currentTarget.style.boxShadow = 'none'
-                      }}
-                      style={{
-                        alignItems: 'center',
-                        background: '#7C3AED',
-                        border: 'none',
-                        borderRadius: 8,
-                        color: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexShrink: 0,
-                        height: 36,
-                        justifyContent: 'center',
-                        width: 36,
-                      }}
-                    >
-                      ▶
-                    </button>
-                  </div>
-                  {showPlaceholder && (
                     <div
                       style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                        color: '#A78BFA',
-                        fontSize: 13,
-                        fontStyle: 'italic',
-                        padding: '0 24px 16px 68px',
+                        alignItems: 'center',
+                        display: 'flex',
+                        gap: 16,
+                        padding: '16px 24px',
                       }}
                     >
-                      ✨ Answer generation coming soon — Phase 4
+                      <span
+                        style={{
+                          color: 'rgba(255,255,255,0.3)',
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          minWidth: 28,
+                        }}
+                      >
+                        {question.question_no}
+                      </span>
+                      <p
+                        style={{
+                          color: '#F5F5F5',
+                          flex: 1,
+                          fontSize: 15,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {question.question_text}
+                      </p>
+                      <span
+                        style={{
+                          ...probabilityStyles(probability),
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: '0.05em',
+                          padding: '3px 10px',
+                          width: 92,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {probability}
+                      </span>
+                      <span
+                        style={{
+                          color: 'rgba(255,255,255,0.4)',
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          minWidth: 36,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {question.estimated_marks ?? 0}M
+                      </span>
+                      {(() => {
+                        const raw = question.diagram_svg?.trim()
+                        const hasDiagram = raw && raw !== 'null' && raw !== 'undefined' && raw.length >= 8
+                        if (!hasDiagram) return <span style={{ width: 36, flexShrink: 0 }} />
+                        const isOpen = openDiagrams.has(question.id)
+                        return (
+                          <button
+                            onClick={() => {
+                              setDiagramSeen(true)
+                              setOpenDiagrams(prev => {
+                                const next = new Set(prev)
+                                if (next.has(question.id)) next.delete(question.id)
+                                else next.add(question.id)
+                                return next
+                              })
+                            }}
+                            title="View diagram"
+                            style={{
+                              alignItems: 'center',
+                              background: isOpen ? 'rgba(124,58,237,0.25)' : 'rgba(124,58,237,0.1)',
+                              border: isOpen ? '1px solid #7C3AED' : '1px solid rgba(124,58,237,0.3)',
+                              borderRadius: 8,
+                              color: isOpen ? '#C4B5FD' : '#A78BFA',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexShrink: 0,
+                              fontSize: 15,
+                              height: 36,
+                              justifyContent: 'center',
+                              width: 36,
+                              transition: 'all 0.2s',
+                              animation: !diagramSeen ? 'diagramGlow 2s ease-in-out infinite' : 'none',
+                            }}
+                          >
+                            📊
+                          </button>
+                        )
+                      })()}
+                      <button
+                        onClick={() => togglePlaceholder(question.id)}
+                        onMouseEnter={(event) => {
+                          event.currentTarget.style.background = '#8B5CF6'
+                          event.currentTarget.style.boxShadow = '0 0 16px rgba(124,58,237,0.5)'
+                        }}
+                        onMouseLeave={(event) => {
+                          event.currentTarget.style.background = '#7C3AED'
+                          event.currentTarget.style.boxShadow = 'none'
+                        }}
+                        style={{
+                          alignItems: 'center',
+                          background: '#7C3AED',
+                          border: 'none',
+                          borderRadius: 8,
+                          color: 'white',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexShrink: 0,
+                          height: 36,
+                          justifyContent: 'center',
+                          width: 36,
+                        }}
+                      >
+                        {showPlaceholder ? '⏹' : '▶'}
+                      </button>
                     </div>
+
+                    {(() => {
+                      if (!openDiagrams.has(question.id)) return null
+                      const raw = question.diagram_svg?.trim()
+                      if (!raw || raw === 'null' || raw === 'undefined' || raw.length < 8) return null
+                      return (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.3, ease: 'easeOut' }}
+                          style={{ padding: '0 24px 16px 68px', overflow: 'hidden' }}
+                        >
+                          {raw.startsWith('<svg') ? (
+                            <div
+                              style={{
+                                background: '#1a1a2e',
+                                borderRadius: 12,
+                                border: '1px solid rgba(124,58,237,0.25)',
+                                maxWidth: 640,
+                                overflow: 'auto',
+                                padding: 16,
+                              }}
+                              dangerouslySetInnerHTML={{ __html: question.diagram_svg! }}
+                            />
+                          ) : (
+                            <MermaidWrapper chart={raw} />
+                          )}
+                        </motion.div>
+                      )
+                    })()}
+                  </div>
+
+                  {showPlaceholder && (
+                    <motion.div
+                      id={`answer-${question.id}`}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      style={{
+                        marginTop: 16,
+                        marginLeft: 64,
+                        marginRight: 24,
+                        marginBottom: 24,
+                        padding: '24px 28px',
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid rgba(255,255,255,0.05)',
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {question.answer_text ? (
+                        <>
+                          <MarkdownRenderer content={question.answer_text} />
+
+                          {question.answer_diagram_type && question.answer_diagram_type !== 'NONE' && (
+                            <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                              {/* Mermaid diagram — show whenever mermaid field is populated, regardless of type */}
+                              {question.answer_diagram_mermaid && (
+                                <MermaidWrapper chart={question.answer_diagram_mermaid} />
+                              )}
+
+                              {/* PDF page link — show when type is PDF_PAGE OR page_ref is populated */}
+                              {question.answer_diagram_page_ref && (
+                                <button
+                                  onClick={async () => {
+                                    const supabase = createClient()
+                                    const { data } = await supabase.storage
+                                      .from('resources')
+                                      .createSignedUrl(question.answer_diagram_page_ref!.storage_path, 300)
+                                    if (data?.signedUrl) {
+                                      window.open(`${data.signedUrl}#page=${question.answer_diagram_page_ref!.page}`, '_blank')
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    background: 'rgba(124,58,237,0.12)',
+                                    border: '1px solid rgba(124,58,237,0.3)',
+                                    borderRadius: 10,
+                                    color: '#A78BFA',
+                                    cursor: 'pointer',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    padding: '10px 16px',
+                                    transition: 'all 0.2s',
+                                    width: 'fit-content',
+                                  }}
+                                >
+                                  📄 Teacher notes diagram — {question.answer_diagram_page_ref.filename} (p.{question.answer_diagram_page_ref.page})
+                                </button>
+                              )}
+
+                              {/* Web link — show whenever web_url is populated, regardless of type */}
+                              {question.answer_diagram_web_url && (
+                                <a
+                                  href={question.answer_diagram_web_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    background: 'rgba(59,130,246,0.12)',
+                                    border: '1px solid rgba(59,130,246,0.3)',
+                                    borderRadius: 10,
+                                    color: '#93C5FD',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    padding: '10px 16px',
+                                    textDecoration: 'none',
+                                    width: 'fit-content',
+                                  }}
+                                >
+                                  🔗 Reference diagram
+                                </a>
+                              )}
+
+                            </div>
+                          )}
+
+
+                          {question.answer_sources && question.answer_sources.length > 0 && (
+                            <div style={{ marginTop: 16 }}>
+                              <button
+                                onClick={() => {
+                                  setOpenSources((prev) => {
+                                    const next = new Set(prev)
+                                    if (next.has(question.id)) next.delete(question.id)
+                                    else next.add(question.id)
+                                    return next
+                                  })
+                                }}
+                                style={{
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: '1px solid rgba(255,255,255,0.1)',
+                                  borderRadius: 8,
+                                  color: 'rgba(255,255,255,0.5)',
+                                  cursor: 'pointer',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  padding: '8px 14px',
+                                  transition: 'all 0.2s',
+                                }}
+                              >
+                                📚 Sources ({question.answer_sources.length})
+                              </button>
+
+                              {openSources.has(question.id) && (
+                                <div
+                                  style={{
+                                    marginTop: 10,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 8,
+                                  }}
+                                >
+                                  {question.answer_sources.map((source, idx) => (
+                                    <div
+                                      key={idx}
+                                      style={{
+                                        background: 'rgba(255,255,255,0.03)',
+                                        border: '1px solid rgba(255,255,255,0.06)',
+                                        borderRadius: 8,
+                                        padding: '10px 14px',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          marginBottom: 4,
+                                        }}
+                                      >
+                                        <span style={{ color: '#A78BFA', fontSize: 11, fontWeight: 700 }}>
+                                          📄 {source.filename}
+                                        </span>
+                                        {source.page && (
+                                          <span
+                                            style={{
+                                              color: 'rgba(255,255,255,0.35)',
+                                              fontSize: 10,
+                                              fontFamily: 'monospace',
+                                            }}
+                                          >
+                                            p.{source.page}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p
+                                        style={{
+                                          color: 'rgba(255,255,255,0.4)',
+                                          fontSize: 12,
+                                          lineHeight: 1.5,
+                                        }}
+                                      >
+                                        {source.content_preview}…
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p style={{ color: '#A78BFA', fontSize: 13, fontStyle: 'italic' }}>
+                          ⏳ Answer is being generated...
+                        </p>
+                      )}
+                    </motion.div>
                   )}
                 </motion.div>
               )
@@ -497,6 +818,14 @@ function ModuleQuestionsContent() {
         @keyframes pulse {
           0%, 100% { opacity: 0.4; }
           50% { opacity: 0.8; }
+        }
+        @keyframes diagramGlow {
+          0%, 100% {
+            box-shadow: 0 0 4px rgba(124,58,237,0.3);
+          }
+          50% {
+            box-shadow: 0 0 16px rgba(124,58,237,0.7), 0 0 30px rgba(124,58,237,0.3);
+          }
         }
       `}</style>
     </div>

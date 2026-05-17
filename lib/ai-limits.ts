@@ -152,6 +152,47 @@ export const GEMINI_MODEL_WEIGHTS_FALLBACK = GEMINI_MODEL_QUESTIONS; // Fallback
 
 export const EMBEDDING_MODEL = "gemini-embedding-2";
 
+// =============================================================================
+// MODEL ROUTER — answer generation routing by question complexity
+// =============================================================================
+
+/**
+ * Maps each routing tag to the correct model + thinking config + token budget.
+ *
+ * MATH_HEAVY: gemini-3.1-flash-lite-preview with HIGH thinking (full chain-of-thought for complex derivations)
+ * NUM_MEDIUM: gemini-3.1-flash-lite-preview with MINIMAL thinking (formula plug-in, light reasoning)
+ * THEORY_IMP: gemini-2.5-flash-lite, no thinking (cheap, fast for straightforward theory)
+ * THEORY_STD: gemini-2.5-flash-lite, no thinking (cheapest path for simple definitions)
+ */
+export const MODEL_ROUTER = {
+    MATH_HEAVY: {
+        model: GEMINI_MODEL_QUESTIONS,           // gemini-3.1-flash-lite-preview
+        thinkingConfig: { thinkingLevel: 'HIGH' as any },
+        maxTokens: 1200,
+    },
+    NUM_MEDIUM: {
+        model: GEMINI_MODEL_QUESTIONS,           // gemini-3.1-flash-lite-preview
+        thinkingConfig: { thinkingLevel: 'MINIMAL' as any },
+        maxTokens: 800,
+    },
+    THEORY_IMP: {
+        model: GEMINI_MODEL_QUESTIONS,           // gemini-3.1-flash-lite-preview (high-yield theory deserves better model)
+        thinkingConfig: { thinkingLevel: 'HIGH' as any },
+        maxTokens: 700,
+    },
+    THEORY_STD: {
+        model: GEMINI_MODEL_QUESTIONS,           // gemini-3.1-flash-lite-preview (plenty of RPM to handle this now)
+        thinkingConfig: { thinkingBudget: 0 },
+        maxTokens: 500,
+    },
+} as const;
+
+export type RoutingTag = keyof typeof MODEL_ROUTER;
+
+/** Default tag for questions with NULL routing_tag (safe mid-tier fallback) */
+export const DEFAULT_ROUTING_TAG: RoutingTag = 'THEORY_IMP';
+
+
 
 /**
  * Minimize thinking for Gemini 3.1.x models (e.g. gemini-3.1-flash-lite-preview).

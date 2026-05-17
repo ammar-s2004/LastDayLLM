@@ -219,10 +219,10 @@ export async function searchNotesHybrid(
             mustConditions.push({ key: 'chunk_tier', match: { value: filters.chunk_tier } });
         }
 
-        // The core topic filter — MatchAny across the detected topics
+        // The core topic filter — MatchAny across the detected topics (lowercased for case-insensitivity)
         mustConditions.push({
             key: 'matched_syllabus_topics',
-            match: { any: detectedTopics },
+            match: { any: detectedTopics.map(t => t.toLowerCase()) },
         });
 
         const searchResult = await client.search(NOTES_COLLECTION, {

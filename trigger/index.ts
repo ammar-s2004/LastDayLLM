@@ -9,3 +9,6 @@ import "./tasks/compute-wtf";
 import "./tasks/compute-te";
 import "./tasks/compute-a";
 import "./tasks/run-prediction";
+import "./tasks/generate-questions";
+import "./tasks/generate-answers";
+import "./tasks/orchestrate-generation";

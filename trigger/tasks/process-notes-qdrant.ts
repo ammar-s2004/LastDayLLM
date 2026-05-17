@@ -330,7 +330,7 @@ export const processNotesQdrantTask = task({
             await updateProgress(metadataId, jobId, 'mapping', 70, 'Mapping chunks to Qdrant points...');
             const { collegeName, subjectName, uploaderUserId } = await getContextNames(collegeId, subjectId, metadataId);
             const now = new Date().toISOString();
-            const keyTopics = topic_map.map((topic) => topic.topic);
+            const keyTopics = topic_map.map((topic) => topic.topic.toLowerCase());
 
             const allPoints: Array<{ content: string; payload: NoteChunkPayload }> = [];
             let chunkIndex = 0;
@@ -350,10 +350,10 @@ export const processNotesQdrantTask = task({
                         teacher_name: teacherName ?? null,
                         content: item.intel,
                         chunk_tier: 'concept_intel',
-                        matched_syllabus_topics: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        matched_syllabus_topics: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         source_page_range: item.page_range || undefined,
                         subtopic: item.subtopic || undefined,
-                        topic_tags: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        topic_tags: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         key_topics: keyTopics,
                         uploader_id: uploaderUserId,
                         created_at: now,
@@ -377,10 +377,10 @@ export const processNotesQdrantTask = task({
                         content: item.content,
                         chunk_tier: 'verbatim',
                         verbatim_type: item.type,
-                        matched_syllabus_topics: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        matched_syllabus_topics: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         label: item.label || undefined,
                         page: item.page || undefined,
-                        topic_tags: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        topic_tags: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         key_topics: keyTopics,
                         uploader_id: uploaderUserId,
                         created_at: now,
@@ -403,9 +403,9 @@ export const processNotesQdrantTask = task({
                         teacher_name: teacherName ?? null,
                         content: item.description,
                         chunk_tier: 'diagram',
-                        matched_syllabus_topics: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        matched_syllabus_topics: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         page: item.page || undefined,
-                        topic_tags: item.subtopic ? [item.topic, item.subtopic] : [item.topic],
+                        topic_tags: item.subtopic ? [item.topic.toLowerCase(), item.subtopic.toLowerCase()] : [item.topic.toLowerCase()],
                         key_topics: keyTopics,
                         uploader_id: uploaderUserId,
                         created_at: now,
